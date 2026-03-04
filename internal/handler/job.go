@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"log"
 	"net/http"
 	"strconv"
 
@@ -32,8 +33,13 @@ func (h *JobHandler) listJobs(c *gin.Context) {
 
 	jobs, err := h.service.ListJobs(category, search)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		log.Printf("Error listing jobs: %v", err)
+		RespondWithError(c, http.StatusInternalServerError, "Failed to fetch jobs")
 		return
+	}
+
+	if jobs == nil {
+		jobs = []model.JobResponse{}
 	}
 
 	c.JSON(http.StatusOK, jobs)
@@ -42,13 +48,18 @@ func (h *JobHandler) listJobs(c *gin.Context) {
 func (h *JobHandler) getJob(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid job id"})
+		RespondWithError(c, http.StatusBadRequest, "Invalid job ID")
 		return
 	}
 
 	job, err := h.service.GetJob(id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "job not found"})
+		if err.Error() == "job not found" {
+			RespondWithError(c, http.StatusNotFound, "Job not found")
+			return
+		}
+		log.Printf("Error getting job %d: %v", id, err)
+		RespondWithError(c, http.StatusInternalServerError, "Failed to fetch job")
 		return
 	}
 
@@ -58,7 +69,16 @@ func (h *JobHandler) getJob(c *gin.Context) {
 func (h *JobHandler) createJob(c *gin.Context) {
 	var req model.CreateJobRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		RespondWithValidationError(c, err)
+		return
+	}
+
+	// Validate request
+	if validationErrs := model.ValidateJobRequest(&req); len(validationErrs) > 0 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Validation failed",
+			"details": validationErrs,
+		})
 		return
 	}
 
@@ -75,9 +95,10 @@ func (h *JobHandler) createJob(c *gin.Context) {
 
 	job, err := h.service.CreateJob(&req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		log.Printf("Error creating job: %v", err)
+		RespondWithError(c, http.StatusInternalServerError, "Failed to create job")
 		return
 	}
 
-	c.JSON(http.StatusCreated, job)
+	RespondWithCreated(c, job)
 }

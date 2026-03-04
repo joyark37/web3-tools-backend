@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"log"
 	"net/http"
 	"strconv"
 
@@ -28,30 +29,45 @@ func (h *ApplicationHandler) RegisterRoutes(r *gin.Engine) {
 func (h *ApplicationHandler) createApplication(c *gin.Context) {
 	var req model.CreateApplicationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		RespondWithValidationError(c, err)
+		return
+	}
+
+	// Validate request
+	if validationErrs := model.ValidateApplicationRequest(&req); len(validationErrs) > 0 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Validation failed",
+			"details": validationErrs,
+		})
 		return
 	}
 
 	app, err := h.service.CreateApplication(&req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		log.Printf("Error creating application: %v", err)
+		RespondWithError(c, http.StatusInternalServerError, "Failed to submit application")
 		return
 	}
 
-	c.JSON(http.StatusCreated, app)
+	RespondWithCreated(c, app)
 }
 
 func (h *ApplicationHandler) getApplicationsByJob(c *gin.Context) {
 	jobID, err := strconv.Atoi(c.Param("jobId"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid job id"})
+		RespondWithError(c, http.StatusBadRequest, "Invalid job ID")
 		return
 	}
 
 	apps, err := h.service.GetApplicationsByJob(jobID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		log.Printf("Error getting applications for job %d: %v", jobID, err)
+		RespondWithError(c, http.StatusInternalServerError, "Failed to fetch applications")
 		return
+	}
+
+	if apps == nil {
+		apps = []model.ApplicationResponse{}
 	}
 
 	c.JSON(http.StatusOK, apps)
